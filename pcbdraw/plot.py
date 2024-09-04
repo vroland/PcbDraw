@@ -29,7 +29,7 @@ except ImportError:
 from pcbdraw.unit import read_resistance
 import svgpathtools # type: ignore
 from lxml import etree, objectify # type: ignore
-from pcbnewTransition import KICAD_VERSION, isV6, isV7, isV8, pcbnew # type: ignore
+from pcbnewTransition import KICAD_VERSION, isV6, isV7, pcbnew # type: ignore
 
 T = TypeVar("T")
 Numeric = Union[int, float]
@@ -41,7 +41,8 @@ PKG_BASE = os.path.dirname(__file__)
 
 etree.register_namespace("xlink", "http://www.w3.org/1999/xlink")
 
-LEGACY_KICAD = not isV6() and not isV7() and not isV8()
+LEGACY_KICAD5 = KICAD_VERSION[0] < 6 and not isV6() # 5.99 counts as "6" in kicad versioning
+LEGACY_KICAD6 = KICAD_VERSION[0] < 7 and not isV7() # 6.99 counts as "7" in kicad versioning
 
 default_style = {
     "copper": "#417e5a",
@@ -112,9 +113,9 @@ class SvgPathItem:
         dx = p1[0] - p2[0]
         dy = p1[1] - p2[1]
         pseudo_distance = dx*dx + dy*dy
-        if isV7():
-            return pseudo_distance < 0.01 ** 2
-        return pseudo_distance < 100 ** 2
+        if LEGACY_KICAD6:
+            return pseudo_distance < 100 ** 2
+        return pseudo_distance < 0.01 ** 2
 
     def format(self, first: bool) -> str:
         ret = ""
@@ -590,7 +591,7 @@ def collect_holes(board: pcbnew.BOARD) -> List[Hole]:
                 orientation=pad.GetOrientation(),
                 drillsize=(drs.x, drs.y)
             ))
-    via_type = pcbnew.VIA if LEGACY_KICAD else pcbnew.PCB_VIA
+    via_type = pcbnew.VIA if LEGACY_KICAD5 else pcbnew.PCB_VIA
     for track in board.GetTracks():
         if not isinstance(track, via_type):
             continue
@@ -1030,15 +1031,15 @@ class PcbPlotter():
 
         self.yield_warning: Callable[[str, str], None] = lambda tag, msg: None # Handle warnings
 
-        if isV7():
-            self.ki2svg = self._ki2svg_v7
-            self.svg2ki = self._svg2ki_v7
-        elif isV6():
+        if LEGACY_KICAD5:
+            self.ki2svg = self._ki2svg_v5
+            self.svg2ki = self._svg2ki_v5
+        elif LEGACY_KICAD6:
             self.ki2svg = self._ki2svg_v6
             self.svg2ki = self._svg2ki_v6
         else:
-            self.ki2svg = self._ki2svg_v5
-            self.svg2ki = self._svg2ki_v5
+            self.ki2svg = self._ki2svg_v7
+            self.svg2ki = self._svg2ki_v7
 
     @property
     def svg_precision(self) -> int:
@@ -1216,9 +1217,11 @@ class PcbPlotter():
                 # Method does not exist in older versions of KiCad
                 pass
             popt.SetTextMode(pcbnew.PLOT_TEXT_MODE_STROKE)
-            if isV6():
+            if LEGACY_KICAD5:
+                pass
+            elif LEGACY_KICAD6:
                 popt.SetSvgPrecision(self.svg_precision, False)
-            if isV7():
+            else:
                 popt.SetSvgPrecision(self.svg_precision)
             for action in to_plot:
                 if len(action.layers) == 0:
